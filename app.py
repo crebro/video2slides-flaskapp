@@ -1,3 +1,4 @@
+import requests
 from skimage.metrics import structural_similarity as compare_ssim
 import os
 import subprocess
@@ -11,10 +12,16 @@ from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
+app.config["BASE_URL"] = "http://127.0.0.1:5000"
 socketio = SocketIO(app, cors_allowed_origins="*")
+COMPLETION_CONFIRMATION_ENDPOINT = "http://localhost:3000/api/completion"
+X_COMPLETION_HEADER = os.getenv("X_COMPLETION_HEADER", "default_completion_header")
+X_COMPILE_REQUEST_HEADER = os.getenv("X_COMPILE_REQUEST_HEADER", "default_compile_request_header")
 
 def extract_youtube_id(url):
     """
@@ -75,7 +82,7 @@ def compare_frames(frame1, frame2):
     (score, _) = compare_ssim(gray1, gray2, full=True)
     return score
 
-def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similarity_threshold=0.95):
+def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similarity_threshold=0.95, server_video_id=None):
     """
     Background task to extract frames and generate PDF.
     """
@@ -137,7 +144,8 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     unique_frame_count = 0
     last_unique_frame = None
     unique_frame_timestamps = []
-    
+    paths_collection = []
+
     for i, frame_file in enumerate(frame_files, 1):
         frame_path = os.path.join(temp_dir, frame_file)
         current_frame = cv2.imread(frame_path, cv2.IMREAD_COLOR)
@@ -154,6 +162,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
             cv2.imwrite(output_path, current_frame)
             last_unique_frame = current_frame.copy()
             unique_frame_timestamps.append(timestamp)
+            paths_collection.append(output_path)
         else:
             similarity = compare_frames(current_frame, last_unique_frame)
             if similarity < similarity_threshold:
@@ -162,6 +171,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
                 cv2.imwrite(output_path, current_frame)
                 last_unique_frame = current_frame.copy()
                 unique_frame_timestamps.append(timestamp)
+                paths_collection.append(output_path)
     
     shutil.rmtree(temp_dir)
     images_to_pdf(output_dir, os.path.join(output_dir, "output.pdf"))
@@ -169,6 +179,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     # Group subtitles by unique frame timestamps
     print(unique_frame_timestamps)
     subtitle_groups = []
+
     try:
         subtitles = get_subtitles(video_id)
         
@@ -206,19 +217,67 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
             'frames_count': unique_frame_count
         }, room=socket_id)
 
-@app.route("/")
-def compute():
-    video_path = request.args.get('video_path')
-    interval = int(request.args.get('interval', 10))
-    threshold = float(request.args.get('threshold', 0.95))
+    ## also make
+    # a POST request to the confirmation endpoint with a body containing a list of video_urls, which should have, video_id, url (this is the image url, image is saved inside /static/<yt_video_id>/frame_xxx.png), and captions from corresponding subtitle_groups
+    if not(video_id):
+        return
+
+    try:
+        # elements will be in the format of {video_id, url, captions}
+        confirmation_data = []
+
+        for i in range(len(paths_collection)):
+            frame_info = {
+                'video_id': server_video_id,
+                'url': f'{app.config["BASE_URL"]}/static/{video_id}/frame_{i+1}.png',
+                'captions': subtitle_groups[i]['subtitles'] if i < len(subtitle_groups) else []
+            }
+            confirmation_data.append(frame_info)
+
+        # this request should have a custom header for authentication, which is stored in the environment variable X-COMPLETION-HEADER
+        headers = {
+            'Content-Type': 'application/json',
+            'X-Completion-Header': X_COMPLETION_HEADER
+        }
+
+        # Send request with a timeout and capture response for debugging
+        response = requests.post(COMPLETION_CONFIRMATION_ENDPOINT, json=confirmation_data, headers=headers, timeout=15)
+
+        if response.status_code == 200:
+            print("Successfully sent completion confirmation")
+        else:
+            print(f"Failed to send completion confirmation: {response.status_code} - {response.text}")
+    except requests.exceptions.Timeout:
+        print("Error sending completion confirmation: request timed out")
+    except Exception as e:
+        print(f"Error sending completion confirmation: {e}")
+
+@app.route("/compile", methods=['POST'])
+def compile():
+    ## check if compile request header matches
+    print(request.headers)
+    print(X_COMPILE_REQUEST_HEADER)
+    if request.headers.get('X-Compile-Request-Header') != X_COMPILE_REQUEST_HEADER:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.get_json()
+
+    video_path = data.get('video_path')
+    interval = int(data.get('interval', 10))
+    threshold = float(data.get('threshold', 0.95))
+    video_id = data.get('video_id', None)
     
     if not video_path:
         return jsonify({'error': 'video_path is required'}), 400
     
     # Start background task
-    socketio.start_background_task(extract_frames_task, video_path, None, interval, threshold)
+    socketio.start_background_task(extract_frames_task, video_path, None, interval, threshold, video_id)
     
     return jsonify({'message': 'process begun'})
+
+@app.route('/')
+def index():
+    return "Video to Slides API is running."
 
 @socketio.on('compute_task')
 def handle_compute_task(data):

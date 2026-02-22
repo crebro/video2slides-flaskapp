@@ -7,3 +7,4 @@ foapproach.py
 .DS_Store
 __pycache__/
 **/*.zip
+.env
