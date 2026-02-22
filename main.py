@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from skimage.metrics import structural_similarity as compare_ssim
 import os
 import subprocess

@@ -1,7 +1,7 @@
-*.mp4
-*/*.mp4
-*/*.pdf
-*/*.png
+**/*.mp4
+**/*.pdf
+**/*.png
 env/
 foapproach.py
 .DS_Store
+__pycache__/
