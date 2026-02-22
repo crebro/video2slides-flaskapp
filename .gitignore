@@ -2,6 +2,8 @@
 **/*.pdf
 **/*.png
 env/
+static/
 foapproach.py
 .DS_Store
 __pycache__/
+**/*.zip

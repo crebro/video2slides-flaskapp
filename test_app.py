@@ -22,7 +22,7 @@ def test_rest_endpoint():
     print("Testing / endpoint...")
     url = "http://127.0.0.1:5000/"
     # Using a short video for testing
-    video_url = "https://www.youtube.com/watch?v=25Ofw-xc_Hk" # Rick Astley - Never Gonna Give You Up (classic)
+    video_url = "https://www.youtube.com/watch?v=V14oJZK9QbA"
     params = {
         'video_path': video_url,
         'interval': 1,
@@ -37,7 +37,7 @@ def test_websocket():
         sio.connect('http://127.0.0.1:5000')
         print("Connected to WebSocket")
         
-        video_url = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+        video_url = "https://www.youtube.com/watch?v=V14oJZK9QbA"
         sio.emit('compute_task', {
             'video_path': video_url,
             'interval': 60,

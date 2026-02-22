@@ -9,6 +9,8 @@ from datetime import timedelta
 import shutil
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
+from youtube_transcript_api import YouTubeTranscriptApi
+import json
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -28,6 +30,17 @@ def extract_youtube_id(url):
         if match:
             return match.group(1)
     return None
+
+def get_subtitles(video_id):
+    """
+    Extract subtitles from a YouTube video link using yt-dlp.
+    Returns the path to the subtitle file (.srt) if successful, else None.
+    """
+
+    ytt_api = YouTubeTranscriptApi()
+    fetched_transcript = ytt_api.fetch(video_id)
+
+    return fetched_transcript
 
 def images_to_pdf(input_folder, output_pdf):
     """
@@ -84,12 +97,6 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
             '--output', video_full_path,
             video_path
         ]
-        # cmd = [
-        #     'yt-dlp', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        #     '--merge-output-format', 'mp4',
-        #     '--output', video_full_path,
-        #     video_path
-        # ]
         subprocess.run(cmd, stderr=subprocess.DEVNULL)
     
     if not os.path.exists(video_full_path):
@@ -129,6 +136,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     
     unique_frame_count = 0
     last_unique_frame = None
+    unique_frame_timestamps = []
     
     for i, frame_file in enumerate(frame_files, 1):
         frame_path = os.path.join(temp_dir, frame_file)
@@ -136,12 +144,16 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
         
         if current_frame is None:
             continue
-            
+
+        # this is technically not true, but this allows us to process the subtitles easily
+        timestamp = (i - 1) * interval_seconds
+        
         if last_unique_frame is None:
             unique_frame_count += 1
             output_path = os.path.join(output_dir, f"frame_{unique_frame_count}.png")
             cv2.imwrite(output_path, current_frame)
             last_unique_frame = current_frame.copy()
+            unique_frame_timestamps.append(timestamp)
         else:
             similarity = compare_frames(current_frame, last_unique_frame)
             if similarity < similarity_threshold:
@@ -149,10 +161,41 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
                 output_path = os.path.join(output_dir, f"frame_{unique_frame_count}.png")
                 cv2.imwrite(output_path, current_frame)
                 last_unique_frame = current_frame.copy()
+                unique_frame_timestamps.append(timestamp)
     
     shutil.rmtree(temp_dir)
     images_to_pdf(output_dir, os.path.join(output_dir, "output.pdf"))
-    
+
+    # Group subtitles by unique frame timestamps
+    print(unique_frame_timestamps)
+    subtitle_groups = []
+    try:
+        subtitles = get_subtitles(video_id)
+        
+        for idx, ts in enumerate(unique_frame_timestamps):
+            next_ts = unique_frame_timestamps[idx + 1] if idx + 1 < len(unique_frame_timestamps) else float('inf')
+            
+            group = {
+                "frame_index": idx + 1,
+                "timestamp": ts,
+                "subtitles": []
+            }
+            
+            for sub in subtitles:
+                if ts <= sub.start < next_ts:
+                    group['subtitles'].append(sub.text)
+            
+            subtitle_groups.append(group)
+            
+        # Save to JSON file
+        json_path = os.path.join(output_dir, "subtitle_groups.json")
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(subtitle_groups, f, indent=4, ensure_ascii=False)
+            print(f"Successfully written to JSON file")
+            
+    except Exception as e:
+        print(f"Error processing subtitles: {e}")
+
     print(f"Finished processing {video_id}. Found {unique_frame_count} unique frames.")
     
     if socket_id:
