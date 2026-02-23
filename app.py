@@ -13,6 +13,8 @@ from flask_socketio import SocketIO, emit
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 from dotenv import load_dotenv
+from google import genai
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -22,6 +24,20 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 COMPLETION_CONFIRMATION_ENDPOINT = "http://localhost:3000/api/completion"
 X_COMPLETION_HEADER = os.getenv("X_COMPLETION_HEADER", "default_completion_header")
 X_COMPILE_REQUEST_HEADER = os.getenv("X_COMPILE_REQUEST_HEADER", "default_compile_request_header")
+client = genai.Client()
+
+def generate_random_string(length=8):
+    """
+    Generate a random string of fixed length.
+    
+    Args:
+        length (int): Length of the random string
+    
+    Returns:
+        str: Random string
+    """
+    letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    return ''.join(random.choice(letters) for i in range(length))
 
 def extract_youtube_id(url):
     """
@@ -87,13 +103,13 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     Background task to extract frames and generate PDF.
     """
     video_id = extract_youtube_id(video_path)
-    if not video_id:
-        video_id = "unknown_video_" + str(random.randint(1000, 9999))
-    
-    output_dir = os.path.join(app.static_folder, video_id)
+
+    video_identification_on_disk = server_video_id if server_video_id else generate_random_string()
+    output_dir = os.path.join(app.static_folder, video_identification_on_disk)
     os.makedirs(output_dir, exist_ok=True)
     
-    video_full_path = os.path.join(output_dir, f'{video_id}.mp4')
+    video_dir = os.path.join(app.static_folder, 'videos')
+    video_full_path = os.path.join(video_dir, f'{video_id}.mp4')
     
     # Download video if it doesn't exist
     if not os.path.exists(video_full_path):
@@ -227,15 +243,15 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     
     if socket_id:
         socketio.emit('processing_complete', {
-            'video_id': video_id,
-            'pdf_path': f'/static/{video_id}/output.pdf',
-            'video_path': f'/static/{video_id}/{video_id}.mp4',
+            'video_id': video_identification_on_disk,
+            'pdf_path': f'/static/{video_identification_on_disk}/output.pdf',
+            'video_path': f'/static/{video_identification_on_disk}/{video_identification_on_disk}.mp4',
             'frames_count': unique_frame_count
         }, room=socket_id)
 
     ## also make
     # a POST request to the confirmation endpoint with a body containing a list of video_urls, which should have, video_id, url (this is the image url, image is saved inside /static/<yt_video_id>/frame_xxx.png), and captions from corresponding subtitle_groups
-    if not(video_full_path):
+    if not(server_video_id):
         return
 
     try:
@@ -245,7 +261,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
         for i in range(len(paths_collection)):
             frame_info = {
                 'video_id': server_video_id,
-                'url': f'/static/{video_id}/frame_{i+1}.png',
+                'url': f'/static/{video_identification_on_disk}/frame_{i+1}.png',
                 'captions': " ".join(subtitle_groups[i]['subtitles']) if i < len(subtitle_groups) else "",
                 'ts': unique_frame_timestamps[i]
             }
@@ -280,8 +296,8 @@ def compile():
     data = request.get_json()
 
     video_path = data.get('video_path')
-    interval = int(data.get('interval', 10))
-    threshold = float(data.get('threshold', 0.98))
+    interval = int(data.get('interval', 5))
+    threshold = float(data.get('threshold', 0.95))
     video_id = data.get('video_id', None)
     
     if not video_path:
