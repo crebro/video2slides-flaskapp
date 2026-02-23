@@ -23,7 +23,7 @@ COMPLETION_CONFIRMATION_ENDPOINT = os.getenv("COMPLETION_CONFIRMATION_ENDPOINT",
 X_COMPLETION_HEADER = os.getenv("X_COMPLETION_HEADER", "default_completion_header")
 X_COMPILE_REQUEST_HEADER = os.getenv("X_COMPILE_REQUEST_HEADER", "default_compile_request_header")
 
-CORS(app, resources={r"*": {"origins": [os.getenv("CORS_ALLOW_ORIGIN", "http://127.0.0.1:3000"), "about:phone"]}})
+CORS(app, resources={r"*": {"origins": [os.getenv("CORS_ALLOW_ORIGIN", "http://127.0.0.1:3000")]}})
 
 def generate_random_string(length=8):
     """
@@ -211,10 +211,13 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     print(unique_frame_timestamps)
     subtitle_groups = []
 
+    # insert (prepend) 0 at index 0
+    unique_frame_timestamps.insert(0, 0)
+
     try:
         subtitles = get_subtitles(video_id)
         
-        for idx, ts in enumerate(unique_frame_timestamps):
+        for idx, ts in enumerate(unique_frame_timestamps[:-1]):
             next_ts = unique_frame_timestamps[idx + 1] if idx + 1 < len(unique_frame_timestamps) else float('inf')
             
             group = {
@@ -222,9 +225,11 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
                 "timestamp": ts,
                 "subtitles": []
             }
-            
+
             for sub in subtitles:
                 if ts <= sub.start < next_ts:
+                    group['subtitles'].append(sub.text)
+                elif sub.start > next_ts and idx == len(unique_frame_timestamps) - 2:
                     group['subtitles'].append(sub.text)
             
             subtitle_groups.append(group)
@@ -286,9 +291,6 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
 
 @app.route("/compile", methods=['POST'])
 def compile():
-    ## check if compile request header matches
-    print(request.headers)
-    print(X_COMPILE_REQUEST_HEADER)
     if request.headers.get('X-Compile-Request-Header') != X_COMPILE_REQUEST_HEADER:
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -303,7 +305,7 @@ def compile():
         return jsonify({'error': 'video_path is required'}), 400
     
     # Start background task
-    socketio.start_background_task(extract_frames_task, video_path, None, interval, threshold, video_id)
+    socketio.start_background_task(extract_frames_task, video_path, video_id, interval, threshold, video_id)
     
     return jsonify({'message': 'process begun'})
 
