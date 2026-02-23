@@ -229,7 +229,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
         for i in range(len(paths_collection)):
             frame_info = {
                 'video_id': server_video_id,
-                'url': f'{app.config["BASE_URL"]}/static/{video_id}/frame_{i+1}.png',
+                'url': f'/static/{video_id}/frame_{i+1}.png',
                 'captions': subtitle_groups[i]['subtitles'] if i < len(subtitle_groups) else []
             }
             confirmation_data.append(frame_info)
