@@ -13,21 +13,17 @@ from flask_socketio import SocketIO, emit
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 from dotenv import load_dotenv
-from google import genai
 from flask_cors import CORS
 
 load_dotenv()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
-app.config["BASE_URL"] = "http://127.0.0.1:5000"
 socketio = SocketIO(app, cors_allowed_origins="*")
-COMPLETION_CONFIRMATION_ENDPOINT = "http://localhost:3000/api/completion"
+COMPLETION_CONFIRMATION_ENDPOINT = os.getenv("COMPLETION_CONFIRMATION_ENDPOINT", "http://127.0.0.1:3000/api/completion")
 X_COMPLETION_HEADER = os.getenv("X_COMPLETION_HEADER", "default_completion_header")
 X_COMPILE_REQUEST_HEADER = os.getenv("X_COMPILE_REQUEST_HEADER", "default_compile_request_header")
-client = genai.Client()
 
-CORS(app, resources={r"*": {"origins": ["http://localhost:3000", "about:phone"]}})
+CORS(app, resources={r"*": {"origins": [os.getenv("CORS_ALLOW_ORIGIN", "http://127.0.0.1:3000"), "about:phone"]}})
 
 def generate_random_string(length=8):
     """

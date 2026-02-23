@@ -1,0 +1,11 @@
+**/*.mp4
+**/*.pdf
+**/*.png
+env/
+foapproach.py
+.DS_Store
+archive/
+__pycache__/
+**/*.zip
+.env
+testing.ipynb
