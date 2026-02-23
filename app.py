@@ -230,7 +230,8 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
             frame_info = {
                 'video_id': server_video_id,
                 'url': f'/static/{video_id}/frame_{i+1}.png',
-                'captions': " ".join(subtitle_groups[i]['subtitles']) if i < len(subtitle_groups) else ""
+                'captions': " ".join(subtitle_groups[i]['subtitles']) if i < len(subtitle_groups) else "",
+                'ts': unique_frame_timestamps[i]
             }
             confirmation_data.append(frame_info)
 
