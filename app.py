@@ -219,7 +219,7 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
 
     ## also make
     # a POST request to the confirmation endpoint with a body containing a list of video_urls, which should have, video_id, url (this is the image url, image is saved inside /static/<yt_video_id>/frame_xxx.png), and captions from corresponding subtitle_groups
-    if not(video_id):
+    if not(video_full_path):
         return
 
     try:

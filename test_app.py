@@ -1,8 +1,12 @@
 import socketio
 import requests
 import time
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 sio = socketio.Client()
+PORT=8000
 
 @sio.on('status')
 def on_status(data):
@@ -20,21 +24,24 @@ def on_error(data):
 
 def test_rest_endpoint():
     print("Testing / endpoint...")
-    url = "http://127.0.0.1:5000/"
+    url = f"http://127.0.0.1:{PORT}/compile"
     # Using a short video for testing
     video_url = "https://www.youtube.com/watch?v=V14oJZK9QbA"
-    params = {
+    body = {
         'video_path': video_url,
         'interval': 1,
         'threshold': 0.9
     }
-    response = requests.get(url, params=params)
-    print(f"Response: {response.json()}")
+    headers = {
+        'X-Compile-Request-Header': os.getenv('X_COMPILE_REQUEST_HEADER')
+    }
+    response = requests.post(url, json=body, headers=headers)
+    print(f"Response: {response.text}")
 
 def test_websocket():
     print("Testing WebSocket connection...")
     try:
-        sio.connect('http://127.0.0.1:5000')
+        sio.connect(f'http://127.0.0.1:{PORT}')
         print("Connected to WebSocket")
         
         video_url = "https://www.youtube.com/watch?v=V14oJZK9QbA"
