@@ -142,37 +142,53 @@ def extract_frames_task(video_path, socket_id=None, interval_seconds=10, similar
     frame_files = sorted([f for f in os.listdir(temp_dir) if f.startswith('frame_')])
     
     unique_frame_count = 0
-    last_unique_frame = None
     unique_frame_timestamps = []
     paths_collection = []
+
+    # We'll track the previous frame in the sequence and write the previous
+    # frame when we detect a change – that ensures we save the final frame of
+    # a repeated slide (end of the run) rather than the first frame.
+    prev_frame = None
+    prev_timestamp = None
 
     for i, frame_file in enumerate(frame_files, 1):
         frame_path = os.path.join(temp_dir, frame_file)
         current_frame = cv2.imread(frame_path, cv2.IMREAD_COLOR)
-        
+
         if current_frame is None:
             continue
 
         # this is technically not true, but this allows us to process the subtitles easily
         timestamp = (i - 1) * interval_seconds
-        
-        if last_unique_frame is None:
+
+        if prev_frame is None:
+            # first frame of the video (start a run)
+            prev_frame = current_frame.copy()
+            prev_timestamp = timestamp
+            continue
+
+        # compare current frame with the previous frame to detect a boundary
+        similarity = compare_frames(current_frame, prev_frame)
+        if similarity < similarity_threshold:
+            # boundary detected: save the previous frame (end of the previous run)
             unique_frame_count += 1
             output_path = os.path.join(output_dir, f"frame_{unique_frame_count}.png")
-            cv2.imwrite(output_path, current_frame)
-            last_unique_frame = current_frame.copy()
-            unique_frame_timestamps.append(timestamp)
+            cv2.imwrite(output_path, prev_frame)
+            unique_frame_timestamps.append(prev_timestamp)
             paths_collection.append(output_path)
-        else:
-            similarity = compare_frames(current_frame, last_unique_frame)
-            if similarity < similarity_threshold:
-                unique_frame_count += 1
-                output_path = os.path.join(output_dir, f"frame_{unique_frame_count}.png")
-                cv2.imwrite(output_path, current_frame)
-                last_unique_frame = current_frame.copy()
-                unique_frame_timestamps.append(timestamp)
-                paths_collection.append(output_path)
-    
+
+        # advance previous to current for next iteration
+        prev_frame = current_frame.copy()
+        prev_timestamp = timestamp
+
+    # After iterating, save the last run's final frame (if any)
+    if prev_frame is not None:
+        unique_frame_count += 1
+        output_path = os.path.join(output_dir, f"frame_{unique_frame_count}.png")
+        cv2.imwrite(output_path, prev_frame)
+        unique_frame_timestamps.append(prev_timestamp)
+        paths_collection.append(output_path)
+
     shutil.rmtree(temp_dir)
     images_to_pdf(output_dir, os.path.join(output_dir, "output.pdf"))
 
@@ -265,7 +281,7 @@ def compile():
 
     video_path = data.get('video_path')
     interval = int(data.get('interval', 10))
-    threshold = float(data.get('threshold', 0.95))
+    threshold = float(data.get('threshold', 0.98))
     video_id = data.get('video_id', None)
     
     if not video_path:
@@ -283,7 +299,7 @@ def index():
 @socketio.on('compute_task')
 def handle_compute_task(data):
     video_path = data.get('video_path')
-    interval = int(data.get('interval', 10))
+    interval = int(data.get('interval', 5))
     threshold = float(data.get('threshold', 0.95))
     
     if not video_path:
